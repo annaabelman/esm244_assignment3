@@ -1,0 +1,176 @@
+---
+title: "ESM244 Assignment 3 Task 1"
+author: "Anna Abelman"
+date: "2/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE)
+
+library(tidyverse)
+library(janitor)
+library(naniar)
+library(VIM)
+library(skimr)
+library(ggfortify)
+
+library(NbClust)
+library(cluster)
+library(factoextra)
+library(dendextend)
+library(ggdendro)
+
+library(corrplot)
+library(stargazer)
+library(sf)
+library(gganimate)
+library(transformr)
+```
+
+```{r}
+#read in data
+stream <- read_csv("sbc_lter_registered_stream_chemistry.csv",
+                   na = c("-999.0","-999"))
+  
+```
+# Santa Barbara Creek Water Chemistry 
+
+Stream water samples from Santa Barbara watersheds are collected weekly to examine the water chemistry and how it differs annually and based on site. Some of the measurements collected include dissolved nitrogen and phosphorus, total suspended solids, and specific conductivity. In this analysis, I solely focused on the concentrations of NH4, NO3, and PO4, the total suspended solids, and the conductivity for the sites (AB00, AT07, and RG07). 
+
+
+### PCA Analysis
+```{r}
+#look at the number of observations in each site
+stream_site_count <- stream %>% 
+  count(site_code)
+
+#filtering out site to only contain AB00, AT07, RG01
+stream_site <- stream %>% 
+  select(site_code, nh4_uM:po4_uM, tss_mgperLiter, spec_cond_uSpercm) %>% 
+  filter(site_code %in% c("AB00", "AT07", "RG01")) %>% 
+  drop_na()
+
+stream_pca <- stream_site %>% 
+  select(-site_code)
+
+#pca analysis
+my_pca_stream <- prcomp(stream_pca, scale = TRUE)
+summary(my_pca_stream)
+
+#biplot it
+my_biplot <- autoplot(my_pca_stream, 
+                      colour = NA,
+                      loadings.label = TRUE,
+                      loadings.label.size = 3,
+                      loadings.label.colour = "black",
+                      loadings.label.repel = TRUE) +
+  theme_minimal()
+  
+
+my_biplot
+```
+
+**Figure 1**: Principal Components Analysis Bioplot demonstrating the correlations between the different stream variables. Data from: SBC LTER & Melack, 2019
+
+Based on the PCA Analysis, the two stream variables NO3 and NH4 concentrations are positively correlated because their arrows are closer together. However, PO4 concentration and specific conductivity of the stream are negatively correlated since their arrows are going in opposite directions. Specific conductivity and total suspended solids have no correlation according to the biplot. 
+
+
+### Cluster Analysis
+```{r, include=FALSE}
+#visually explore the data
+ggplot(data = stream_site, aes(x = nh4_uM, y = tss_mgperLiter))+
+  geom_point(aes(color = site_code))+
+  scale_x_continuous(limits = c(0,100))+
+  scale_y_continuous(limits = c(0,20000))
+
+ggplot(data = stream_site, aes(x = no3_uM, y = tss_mgperLiter))+
+  geom_point(aes(color = site_code))
+
+ggplot(data = stream_site, aes(x = po4_uM, y = tss_mgperLiter))+
+  geom_point(aes(color = site_code))
+
+#how cluster there should be?
+number_est <- NbClust(stream_pca[1:5], min.nc = 2, max.nc = 10, method = "kmeans")
+
+stream_km <- kmeans(stream_pca[1:5], 2)
+
+# stream_km$size
+# 
+# stream_km$centers
+# 
+# stream_km$cluster
+```
+
+```{r}
+#create a dataframe with the cluster results as a column
+stream_cl <- data.frame(stream_pca, cluster_no = factor(stream_km$cluster))
+
+#visualize it just looking at NO3 (uM) concentration only
+ggplot(stream_cl)+
+  geom_point(aes(x = no3_uM, y = tss_mgperLiter, color = cluster_no),
+             show.legend = FALSE)+
+  theme_minimal()+
+  labs(title = "Cluster Analysis", x = "NO3 (uM)", y = "Total Suspended Solids (uS/cm)")
+  
+```
+Figure 2: Cluster Analysis Between NO3 Concentration (uM) and Total Suspended Solids (uS/cm). The two colors indicate the two different clusters. Data from: SBC LTER & Melack, 2019
+
+### Multiple Linear Regression
+```{r}
+#look at the correlations between the variables
+# stream_cor <- cor(stream_site[2:6])
+# stream_cor
+# 
+# corrplot(stream_cor,
+#          method = "circle",
+#          type = "upper")
+```
+
+Table 1: Multiple Linear Regression results for suspended sediments  with predictor variables: concentration (uM) of NH4, NO3, and PO4, the stream conductivity (uS/cm). Data from: SBC LTER & Melack, 2019
+```{r, results = 'asis'}
+#create a multiple regression model to see how the site, nh4, no3, po4, and conductibity has on the suspended sediments
+stream_lm <- lm(tss_mgperLiter ~ site_code + nh4_uM + no3_uM + po4_uM + spec_cond_uSpercm, data = stream_site)
+
+#summary(stream_lm)
+
+stream_lm2 <- lm(tss_mgperLiter ~ site_code + nh4_uM + no3_uM + po4_uM, data = stream_site)
+
+#summary(stream_lm2)
+
+stream_lm3 <- lm(tss_mgperLiter ~ nh4_uM + no3_uM + po4_uM + spec_cond_uSpercm, data = stream_site)
+
+#summary(stream_lm3)
+
+stream_lm4 <- lm(tss_mgperLiter ~ site_code + no3_uM + po4_uM + spec_cond_uSpercm, data = stream_site)
+
+#summary(stream_lm4)
+
+stream_lm5 <- lm(tss_mgperLiter ~ site_code + no3_uM + spec_cond_uSpercm + nh4_uM , data = stream_site)
+
+#summary(stream_lm5)
+
+#AIC
+# AIC(stream_lm)
+# AIC(stream_lm2)
+# AIC(stream_lm3)
+# AIC(stream_lm4)
+# AIC(stream_lm5)
+
+stargazer(stream_lm, type = "html")
+```
+
+The multiple linear regression model indicates that the site AT07 has a negative effect on the total suspended solids, while the site RG01 has a positive correlation. The three concentrations: NH4, NO3, and PO4 all have positive correlation on total suspended solids and the specific conductivity has a slightly negative correlation. This differs from the PCA analysis above (Figure 1). 
+
+Citation: 
+
+Santa Barbara Coastal LTER and J. Melack. 2019. SBC LTER: Land: Stream chemistry in the Santa Barbara Coastal drainage area, ongoing since 2000 ver 16. Environmental Data Initiative. https://doi.org/10.6073/pasta/67a558a24ceed9a0a5bf5e46ab841174. Accessed 2020-03-10.
+
+
+
+
+
+
+
+
+

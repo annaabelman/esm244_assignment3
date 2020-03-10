@@ -1,0 +1,145 @@
+---
+title: "ESM244 Assignment 3 Task 2"
+author: "Anna Abelman"
+date: "2/29/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+
+library(tidyverse)
+library(here)
+
+# For text mining:
+library(pdftools)
+library(tidytext)
+library(textdata) 
+library(ggwordcloud)
+
+#used for sentiments later on...
+get_sentiments(lexicon = "afinn")
+get_sentiments(lexicon = "bing")
+get_sentiments(lexicon = "nrc")
+```
+
+### Text Analysis of Hunger Games by Suzanne Collins
+
+PDF from: https://archive.org/details/image_201902
+
+The purpose of this analysis is to see which words are used most frequently throughout the book as well as the overall tone of the book using a sentiment analysis.
+
+```{r}
+#read in the pdf
+hg_path <- here("hunger games.pdf")
+hg_text <- pdf_text(hg_path)
+
+#make into data frame
+hg_df <- data.frame(hg_text) %>% 
+  mutate(text_full = str_split(hg_text, pattern = '\\n')) %>% 
+  unnest(text_full) %>% 
+  mutate(text_full = str_trim(text_full)) 
+
+#tokens data frame
+hg_tokens <- hg_df %>% 
+  unnest_tokens(word, text_full)
+
+#get the counts of the each word
+hg_counts <- hg_tokens %>% 
+  count(word) %>% 
+  arrange(-n)
+```
+
+```{r}
+#use stop_words to remove unnecessary words
+hg_stop <- hg_tokens %>% 
+  anti_join(stop_words) %>% 
+  select(-hg_text)
+
+#count the list of words once the stop words are removed (not working for some reason, but worked in lab)
+hg_swc <- hg_stop %>% 
+  count(word) %>% 
+  arrange(-n)
+
+#remove the numbers to only contain words
+hg_no_numeric <- hg_stop %>% 
+  filter(is.na(as.numeric(word)))
+```
+
+```{r}
+#to see the number of individual words
+length(unique(hg_no_numeric$word))
+
+#keep only the top 50 words
+hg_top50 <- hg_no_numeric %>% 
+  count(word) %>% 
+  arrange(-n) %>% 
+  head(50)
+
+# create a word cloud visualization to see the top 50 words
+ggplot(data = hg_top50, aes(label = word, size = n)) +
+  geom_text_wordcloud_area(aes(color = n), shape = "diamond") +
+  scale_size_area(max_size = 10) +
+  scale_color_gradientn(colors = c("darkgreen","blue","purple")) +
+  theme_minimal()
+
+```
+Figure 1: Word Cloud of the Top 50 Words in Hunger Games by Suzanne Collins. Data from: https://archive.org/details/image_201902
+
+#### Sentiment analysis
+
+Using the three:
+ - `get_sentiments(lexicon = "afinn")`
+ - `get_sentiments(lexicon = "bing")`
+ - `get_sentiments(lexicon = "nrc")`
+
+```{r}
+#join the hg_stop data frame with the afinn sentiments 
+hg_afinn <- hg_stop %>% 
+  inner_join(get_sentiments("afinn"))
+
+#visualize the counts of the values to see the distribution of the words and their sentiments
+hg_afinn_hist <- hg_afinn %>% 
+  count(value)
+
+#graph it
+#ggplot(data = hg_afinn_hist, aes(x = value, y = n))+
+  #geom_col()
+```
+
+```{r}
+#join the hg_stop data frame with the nrc sentiments 
+hg_nrc <- hg_stop %>% 
+  inner_join(get_sentiments("nrc"))
+
+#count by sentiment to see the number of words for each 
+hg_nrc_n <- hg_nrc %>% 
+  count(sentiment, sort = TRUE)
+
+#visualize the counts 
+#ggplot(data = hg_nrc_n, aes(x = sentiment, y = n))+
+#  geom_col()+
+#  coord_flip()
+
+#group by the sentiment and and count, but only keep the top 5 words for each sentiment
+hg_nrc_n3 <- hg_nrc %>% 
+  count(word, sentiment, sort = TRUE) %>% 
+  group_by(sentiment) %>% 
+  top_n(3) %>% 
+  ungroup()
+
+#plot the sentiments and the top 5 words for each and use facet_wrap() to see all at once to compare
+ggplot(data = hg_nrc_n3, aes(x = reorder(word,n), y = n, fill = sentiment)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~sentiment, ncol = 2, scales = "free") +
+  coord_flip() +
+  theme_minimal() +
+  labs(x = "Word", y = "Count", title = "Top Words in Hunger Games Mentioned Per Sentiment")
+
+```
+Figure 2: Top 3 words mentioned in the book Hunger Games for each sentiment. Data from: https://archive.org/details/image_201902
+
+In this analysis, the number of specific words and their abundance varies throughout the book, but the overall tone of the novel is more consistent. According to Figure 2, there are higher counts for anticipation, negative, sadness, and digust, setting an overall negative tone for the novel. Based on the book's theme, this makes sense. However, in Figure 1, some of the invaluable words were not removed when using the stop_words vector, which may sway the top 50 words. Additionally, some of the words in the sentiment analysis are listed in multiple sentiments like mother and tree in both positive and anticipation. This may alter how we interpret the results. 
+
+
+
